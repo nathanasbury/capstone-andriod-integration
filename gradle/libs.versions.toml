@@ -1,4 +1,5 @@
 [versions]
+healthConnect = "1.1.0-alpha07"
 agp = "8.7.3"
 kotlin = "2.0.0"
 coreKtx = "1.10.1"
@@ -12,6 +13,7 @@ hilt = "2.51.1"
 coroutines = "1.8.0"
 
 [libraries]
+androidx-health-connect-client = { group = "androidx.health.connect", name = "connect-client", version.ref = "healthConnect" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
