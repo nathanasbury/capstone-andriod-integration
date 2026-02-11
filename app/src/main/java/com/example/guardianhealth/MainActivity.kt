@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dagger.hilt.android.AndroidEntryPoint
 
 // Forest theme colors
 object ForestTheme {
@@ -43,6 +44,7 @@ object ForestTheme {
     val SunsetOrange = Color(0xFFE76F51)
 }
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private lateinit var bleManager: BLEManager
