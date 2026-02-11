@@ -21,6 +21,22 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"
         android:maxSdkVersion="30" />
 
+    <!-- Foreground Service (Keep connection alive) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
+    <!-- Notifications (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Safety & Alerts -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!-- Health Connect (Android 14+) -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.WRITE_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.WRITE_HEART_RATE" />
+
     <!-- Declare that this app uses Bluetooth LE -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -43,6 +59,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Service Declaration (Coming Soon) -->
+        <!-- <service android:name=".services.BleService" 
+                 android:foregroundServiceType="connectedDevice" 
+                 android:exported="false" /> -->
+
     </application>
 
 </manifest>
