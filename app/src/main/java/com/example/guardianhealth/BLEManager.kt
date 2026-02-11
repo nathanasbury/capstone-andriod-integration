@@ -14,7 +14,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.*
 
-class BLEManager(private val context: Context) {
+import javax.inject.Inject
+import dagger.hilt.android.qualifiers.ApplicationContext
+
+import javax.inject.Singleton
+
+@Singleton
+class BLEManager @Inject constructor(@ApplicationContext private val context: Context) {
 
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager

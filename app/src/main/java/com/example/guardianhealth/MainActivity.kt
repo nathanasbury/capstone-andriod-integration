@@ -47,7 +47,7 @@ object ForestTheme {
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private lateinit var bleManager: BLEManager
+    @javax.inject.Inject lateinit var bleManager: BLEManager
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -61,7 +61,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        bleManager = BLEManager(this)
 
         setContent {
             HealthTrackerTheme {
