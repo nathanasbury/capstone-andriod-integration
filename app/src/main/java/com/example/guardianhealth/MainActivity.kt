@@ -31,17 +31,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dagger.hilt.android.AndroidEntryPoint
 
-// Forest theme colors
-object ForestTheme {
-    val DeepForest = Color(0xFF1B4332)
-    val MossGreen = Color(0xFF2D6A4F)
-    val LeafGreen = Color(0xFF40916C)
-    val SageGreen = Color(0xFF52B788)
-    val MintGreen = Color(0xFF74C69D)
-    val LightMint = Color(0xFF95D5B2)
-    val Cream = Color(0xFFF8F9FA)
-    val SkyBlue = Color(0xFF4A90A4)
-    val SunsetOrange = Color(0xFFE76F51)
+
+object GuardianHealthTheme {
+    
+    
+    
+    
+    
+    
+    
+    
+    
 }
 
 @AndroidEntryPoint
@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
 
 
         setContent {
-            HealthTrackerTheme {
+            GuardianHealthTheme {
                 var currentScreen by remember { mutableStateOf("home") }
 
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -73,9 +73,9 @@ class MainActivity : ComponentActivity() {
                             .background(
                                 Brush.verticalGradient(
                                     colors = listOf(
-                                        ForestTheme.DeepForest,
-                                        ForestTheme.MossGreen,
-                                        ForestTheme.LeafGreen
+                                        GuardianHealthTheme.DeepForest,
+                                        GuardianHealthTheme.MossGreen,
+                                        GuardianHealthTheme.LeafGreen
                                     )
                                 )
                             )
@@ -120,12 +120,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HealthTrackerTheme(content: @Composable () -> Unit) {
+fun GuardianHealthTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = lightColorScheme(
-            primary = ForestTheme.LeafGreen,
-            secondary = ForestTheme.SageGreen,
-            background = ForestTheme.Cream
+            primary = GuardianHealthTheme.LeafGreen,
+            secondary = GuardianHealthTheme.SageGreen,
+            background = GuardianHealthTheme.Cream
         ),
         content = content
     )
@@ -159,13 +159,13 @@ fun HomeScreen(
                     Icon(
                         Icons.Default.Settings,
                         contentDescription = null,
-                        tint = ForestTheme.Cream,
+                        tint = GuardianHealthTheme.Cream,
                         modifier = Modifier.size(28.dp)
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
                         "Vitality Tracker",
-                        color = ForestTheme.Cream,
+                        color = GuardianHealthTheme.Cream,
                         fontWeight = FontWeight.Bold,
                         fontSize = 22.sp
                     )
@@ -176,7 +176,7 @@ fun HomeScreen(
                     Icon(
                         Icons.Default.Settings,
                         contentDescription = "Settings",
-                        tint = ForestTheme.Cream
+                        tint = GuardianHealthTheme.Cream
                     )
                 }
             },
@@ -215,7 +215,7 @@ fun HomeScreen(
                 text = "Your Vitals",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                color = ForestTheme.Cream,
+                color = GuardianHealthTheme.Cream,
                 modifier = Modifier.align(Alignment.Start)
             )
 
@@ -226,17 +226,7 @@ fun HomeScreen(
                 title = "Steps",
                 value = steps.toString(),
                 unit = "steps",
-                gradient = listOf(ForestTheme.SageGreen, ForestTheme.MintGreen)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            HealthMetricCard(
-                icon = Icons.Default.Favorite,
-                title = "Heart Rate",
-                value = heartRate.toString(),
-                unit = "bpm",
-                gradient = listOf(ForestTheme.SunsetOrange, Color(0xFFFF8A65))
+                gradient = listOf(GuardianHealthTheme.SageGreen, MaterialTheme.colorScheme.primaryContainer)
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -246,7 +236,7 @@ fun HomeScreen(
                 title = "Blood Oxygen",
                 value = bloodOxygen.toString(),
                 unit = "%",
-                gradient = listOf(ForestTheme.SkyBlue, Color(0xFF64B5F6))
+                gradient = listOf(GuardianHealthTheme.SkyBlue, Color(0xFF64B5F6))
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -271,7 +261,7 @@ fun HomeScreen(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    containerColor = if (isConnected) ForestTheme.LeafGreen else ForestTheme.MossGreen
+                    containerColor = if (isConnected) GuardianHealthTheme.LeafGreen else MaterialTheme.colorScheme.secondary
                 )
 
                 ActionButton(
@@ -279,7 +269,7 @@ fun HomeScreen(
                     text = "Emergency",
                     onClick = {},
                     modifier = Modifier.weight(1f),
-                    containerColor = ForestTheme.SunsetOrange
+                    containerColor = GuardianHealthTheme.SunsetOrange
                 )
             }
 
@@ -342,7 +332,7 @@ fun DeviceSelectionDialog(
                                 .padding(vertical = 4.dp)
                                 .clickable { onDeviceSelected(device) },
                             colors = CardDefaults.cardColors(
-                                containerColor = ForestTheme.LightMint.copy(alpha = 0.2f)
+                                containerColor = GuardianHealthTheme.LightMint.copy(alpha = 0.2f)
                             )
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
@@ -391,7 +381,7 @@ fun SettingsScreen(
             title = {
                 Text(
                     "Settings",
-                    color = ForestTheme.Cream,
+                    color = GuardianHealthTheme.Cream,
                     fontWeight = FontWeight.Bold
                 )
             },
@@ -400,7 +390,7 @@ fun SettingsScreen(
                     Icon(
                         Icons.Default.ArrowBack,
                         contentDescription = "Back",
-                        tint = ForestTheme.Cream
+                        tint = GuardianHealthTheme.Cream
                     )
                 }
             },
@@ -473,13 +463,13 @@ fun SettingsScreen(
                             Icon(
                                 Icons.Default.Phone,
                                 contentDescription = null,
-                                tint = ForestTheme.SunsetOrange,
+                                tint = GuardianHealthTheme.SunsetOrange,
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 "Emergency Phone Number",
-                                color = ForestTheme.Cream,
+                                color = GuardianHealthTheme.Cream,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -490,9 +480,9 @@ fun SettingsScreen(
                             placeholder = { Text("Enter phone number") },
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = ForestTheme.Cream,
-                                unfocusedTextColor = ForestTheme.Cream,
-                                focusedBorderColor = ForestTheme.MintGreen,
+                                focusedTextColor = GuardianHealthTheme.Cream,
+                                unfocusedTextColor = GuardianHealthTheme.Cream,
+                                focusedBorderColor = GuardianHealthTheme.MintGreen,
                                 unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
                                 focusedPlaceholderColor = Color.White.copy(alpha = 0.5f),
                                 unfocusedPlaceholderColor = Color.White.copy(alpha = 0.5f)
@@ -544,7 +534,7 @@ fun SettingsSection(
             text = title,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
-            color = ForestTheme.LightMint,
+            color = GuardianHealthTheme.LightMint,
             modifier = Modifier.padding(start = 4.dp)
         )
         content()
@@ -576,14 +566,14 @@ fun SettingToggle(
             Icon(
                 icon,
                 contentDescription = null,
-                tint = ForestTheme.MintGreen,
+                tint = GuardianHealthTheme.MintGreen,
                 modifier = Modifier.size(28.dp)
             )
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     title,
-                    color = ForestTheme.Cream,
+                    color = GuardianHealthTheme.Cream,
                     fontWeight = FontWeight.Medium,
                     fontSize = 16.sp
                 )
@@ -597,8 +587,8 @@ fun SettingToggle(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = ForestTheme.Cream,
-                    checkedTrackColor = ForestTheme.LeafGreen,
+                    checkedThumbColor = GuardianHealthTheme.Cream,
+                    checkedTrackColor = GuardianHealthTheme.LeafGreen,
                     uncheckedThumbColor = Color.White.copy(alpha = 0.5f),
                     uncheckedTrackColor = Color.White.copy(alpha = 0.2f)
                 )
@@ -629,14 +619,14 @@ fun SettingItem(
             Icon(
                 icon,
                 contentDescription = null,
-                tint = ForestTheme.MintGreen,
+                tint = GuardianHealthTheme.MintGreen,
                 modifier = Modifier.size(28.dp)
             )
             Spacer(Modifier.width(16.dp))
             Column {
                 Text(
                     title,
-                    color = ForestTheme.Cream,
+                    color = GuardianHealthTheme.Cream,
                     fontWeight = FontWeight.Medium,
                     fontSize = 16.sp
                 )
@@ -673,7 +663,7 @@ fun ConnectionStatusCard(isConnected: Boolean, statusText: String, deviceName: S
                     .size(14.dp)
                     .clip(CircleShape)
                     .background(
-                        if (isConnected) ForestTheme.MintGreen else ForestTheme.SunsetOrange
+                        if (isConnected) GuardianHealthTheme.MintGreen else MaterialTheme.colorScheme.error
                     )
             )
             Spacer(Modifier.width(16.dp))
@@ -682,7 +672,7 @@ fun ConnectionStatusCard(isConnected: Boolean, statusText: String, deviceName: S
                     if (isConnected) "Connected to ${deviceName ?: "Device"}" else "Device Disconnected",
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp,
-                    color = ForestTheme.Cream
+                    color = GuardianHealthTheme.Cream
                 )
                 Text(
                     statusText,
@@ -693,7 +683,7 @@ fun ConnectionStatusCard(isConnected: Boolean, statusText: String, deviceName: S
             Icon(
                 if (isConnected) Icons.Default.CheckCircle else Icons.Default.Warning,
                 contentDescription = null,
-                tint = if (isConnected) ForestTheme.MintGreen else ForestTheme.SunsetOrange,
+                tint = if (isConnected) GuardianHealthTheme.MintGreen else MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(28.dp)
             )
         }
@@ -748,7 +738,7 @@ fun HealthMetricCard(
                         value,
                         fontSize = 38.sp,
                         fontWeight = FontWeight.Bold,
-                        color = ForestTheme.Cream
+                        color = GuardianHealthTheme.Cream
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
@@ -768,7 +758,7 @@ fun FallAlertBanner(onDismiss: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = ForestTheme.SunsetOrange
+            containerColor = GuardianHealthTheme.SunsetOrange
         ),
         shape = RoundedCornerShape(20.dp)
     ) {
@@ -803,7 +793,7 @@ fun FallAlertBanner(onDismiss: () -> Unit) {
                 onClick = onDismiss,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color.White,
-                    contentColor = ForestTheme.SunsetOrange
+                    contentColor = GuardianHealthTheme.SunsetOrange
                 ),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
@@ -822,7 +812,7 @@ fun ActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    containerColor: Color = ForestTheme.LeafGreen
+    containerColor: Color = GuardianHealthTheme.LeafGreen
 ) {
     Button(
         onClick = onClick,

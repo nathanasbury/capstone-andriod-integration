@@ -1,4 +1,5 @@
 [versions]
+room = "2.6.1"
 healthConnect = "1.1.0-alpha07"
 agp = "8.7.3"
 kotlin = "2.0.0"
@@ -13,6 +14,9 @@ hilt = "2.51.1"
 coroutines = "1.8.0"
 
 [libraries]
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-health-connect-client = { group = "androidx.health.connect", name = "connect-client", version.ref = "healthConnect" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
