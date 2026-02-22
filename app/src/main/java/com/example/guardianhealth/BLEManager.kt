@@ -298,21 +298,24 @@ class BLEManager @Inject constructor(
     private fun handleCharacteristicData(uuid: UUID, value: ByteArray) {
         if (value.isEmpty()) return
 
+        val hexStr = value.joinToString(" ") { "0x%02X".format(it) }
+        Log.d(TAG, "📩 Received data from $uuid: $hexStr")
+
         when (uuid) {
             HEART_RATE_UUID -> {
                 val hr = value[0].toInt() and 0xFF
                 _heartRate.value = hr
-                Log.d(TAG, "Heart Rate: $hr bpm")
+                Log.d(TAG, "❤️ Heart Rate: $hr bpm")
             }
             SPO2_UUID -> {
                 val spo2 = value[0].toInt() and 0xFF
                 _bloodOxygen.value = spo2
-                Log.d(TAG, "SpO2: $spo2%")
+                Log.d(TAG, "🫁 SpO2: $spo2%")
             }
             STEPS_UUID -> {
                 val s = bytesToInt(value)
                 _steps.value = s
-                Log.d(TAG, "Steps: $s")
+                Log.d(TAG, "👟 Steps: $s")
             }
             FALL_DETECT_UUID -> {
                 val fell = value[0].toInt() == 1
@@ -320,6 +323,9 @@ class BLEManager @Inject constructor(
                     _fallDetected.value = true
                     Log.w(TAG, "⚠️ FALL DETECTED via BLE")
                     fallAlertManager.onFallDetected()
+                } else if (!fell && _fallDetected.value) {
+                    _fallDetected.value = false
+                    Log.d(TAG, "✅ Fall cleared")
                 }
             }
         }
