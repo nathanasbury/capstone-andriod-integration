@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.time.Instant
 import java.util.*
+import java.util.concurrent.ConcurrentLinkedQueue
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -38,6 +39,10 @@ class BLEManager @Inject constructor(
     private val bleScanner by lazy { bluetoothAdapter?.bluetoothLeScanner }
 
     private var bluetoothGatt: BluetoothGatt? = null
+
+    // GATT operation queue — BLE only allows ONE pending operation at a time
+    private val gattQueue = ConcurrentLinkedQueue<Runnable>()
+    private var gattBusy = false
 
     // Throttle Health Connect writes to once per minute
     private var lastHealthConnectWrite = 0L
@@ -165,6 +170,8 @@ class BLEManager @Inject constructor(
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        gattQueue.clear()
+        gattBusy = false
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
         bluetoothGatt = null
@@ -205,21 +212,65 @@ class BLEManager @Inject constructor(
             Log.d(TAG, "Services discovered: ${gatt.services.size}")
             gatt.services.forEach { svc ->
                 Log.d(TAG, "  Service: ${svc.uuid}")
-                svc.characteristics.forEach { c -> Log.d(TAG, "    Char: ${c.uuid}") }
+                svc.characteristics.forEach { c ->
+                    Log.d(TAG, "    Char: ${c.uuid} props=0x${c.properties.toString(16)}")
+                }
             }
 
             val service = gatt.getService(SERVICE_UUID)
             if (service != null) {
-                _connectionStatus.value = "Connected"
-                // Subscribe to all characteristics — order matters for GATT queue
-                enableNotification(gatt, service, HEART_RATE_UUID)
-                enableNotification(gatt, service, SPO2_UUID)
-                enableNotification(gatt, service, STEPS_UUID)
-                enableNotification(gatt, service, FALL_DETECT_UUID)
+                _connectionStatus.value = "Connected — subscribing..."
+                // Queue notification subscriptions one at a time
+                val uuids = listOf(HEART_RATE_UUID, SPO2_UUID, STEPS_UUID, FALL_DETECT_UUID)
+                uuids.forEach { uuid ->
+                    enqueueNotificationSubscription(gatt, service, uuid)
+                }
+                // After subscribing, read each characteristic once for initial values
+                uuids.forEach { uuid ->
+                    enqueueRead(gatt, service, uuid)
+                }
+                // Kick off the queue
+                processNextGattOperation()
             } else {
                 _connectionStatus.value = "Connected (service not found)"
-                Log.w(TAG, "Service $SERVICE_UUID not found on device")
+                Log.w(TAG, "Service $SERVICE_UUID not found. Available services:")
+                gatt.services.forEach { Log.w(TAG, "  ${it.uuid}") }
             }
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onDescriptorWrite(
+            gatt: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "Descriptor write OK for ${descriptor.characteristic.uuid}")
+            } else {
+                Log.e(TAG, "Descriptor write FAILED for ${descriptor.characteristic.uuid} status=$status")
+            }
+            gattBusy = false
+            processNextGattOperation()
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            gattBusy = false
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                @Suppress("DEPRECATION")
+                val value = characteristic.value
+                if (value != null && value.isNotEmpty()) {
+                    Log.d(TAG, "Read initial value for ${characteristic.uuid}: ${value.joinToString { "0x%02X".format(it) }}")
+                    handleCharacteristicData(characteristic.uuid, value)
+                }
+            } else {
+                Log.e(TAG, "Read FAILED for ${characteristic.uuid} status=$status")
+            }
+            processNextGattOperation()
         }
 
         // API < 33 callback (Android 12 and below)
@@ -312,20 +363,75 @@ class BLEManager @Inject constructor(
         }
     }
 
-    // ── Notification Subscription ─────────────────────────────────
+    // ── GATT Operation Queue ──────────────────────────────────────
+    // BLE allows only ONE pending GATT operation at a time.
+    // Each operation (writeDescriptor, readCharacteristic) is wrapped
+    // in a Runnable and processed sequentially.
+
     @SuppressLint("MissingPermission")
-    private fun enableNotification(
+    private fun enqueueNotificationSubscription(
         gatt: BluetoothGatt,
         service: BluetoothGattService,
         charUuid: UUID
     ) {
-        val char = service.getCharacteristic(charUuid) ?: return
-        gatt.setCharacteristicNotification(char, true)
-        val desc = char.getDescriptor(CCCD_UUID)
-        if (desc != null) {
-            desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            gatt.writeDescriptor(desc)
+        gattQueue.add(Runnable {
+            val char = service.getCharacteristic(charUuid)
+            if (char == null) {
+                Log.w(TAG, "Characteristic $charUuid not found — skipping")
+                gattBusy = false
+                processNextGattOperation()
+                return@Runnable
+            }
+            gatt.setCharacteristicNotification(char, true)
+            val desc = char.getDescriptor(CCCD_UUID)
+            if (desc != null) {
+                @Suppress("DEPRECATION")
+                desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                val ok = gatt.writeDescriptor(desc)
+                Log.d(TAG, "writeDescriptor for $charUuid: $ok")
+                if (!ok) {
+                    gattBusy = false
+                    processNextGattOperation()
+                }
+            } else {
+                Log.w(TAG, "No CCCD for $charUuid — notification may still work")
+                gattBusy = false
+                processNextGattOperation()
+            }
+        })
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun enqueueRead(
+        gatt: BluetoothGatt,
+        service: BluetoothGattService,
+        charUuid: UUID
+    ) {
+        gattQueue.add(Runnable {
+            val char = service.getCharacteristic(charUuid)
+            if (char == null) {
+                gattBusy = false
+                processNextGattOperation()
+                return@Runnable
+            }
+            val ok = gatt.readCharacteristic(char)
+            Log.d(TAG, "readCharacteristic for $charUuid: $ok")
+            if (!ok) {
+                gattBusy = false
+                processNextGattOperation()
+            }
+        })
+    }
+
+    private fun processNextGattOperation() {
+        if (gattBusy) return
+        val next = gattQueue.poll() ?: run {
+            Log.d(TAG, "GATT queue empty — all subscriptions done")
+            _connectionStatus.value = "Connected"
+            return
         }
+        gattBusy = true
+        next.run()
     }
 
     // ── Fall Detection Controls ───────────────────────────────────
