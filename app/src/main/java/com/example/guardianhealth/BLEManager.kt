@@ -225,9 +225,9 @@ class BLEManager @Inject constructor(
                 uuids.forEach { uuid ->
                     enqueueNotificationSubscription(gatt, service, uuid)
                 }
-                // After subscribing, read each characteristic once for initial values
+                // Try to read initial values (optional — will skip if READ not supported)
                 uuids.forEach { uuid ->
-                    enqueueRead(gatt, service, uuid)
+                    enqueueReadIfSupported(gatt, service, uuid)
                 }
                 // Kick off the queue
                 processNextGattOperation()
@@ -402,7 +402,7 @@ class BLEManager @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
-    private fun enqueueRead(
+    private fun enqueueReadIfSupported(
         gatt: BluetoothGatt,
         service: BluetoothGattService,
         charUuid: UUID
@@ -410,6 +410,13 @@ class BLEManager @Inject constructor(
         gattQueue.add(Runnable {
             val char = service.getCharacteristic(charUuid)
             if (char == null) {
+                gattBusy = false
+                processNextGattOperation()
+                return@Runnable
+            }
+            // Check if READ is supported
+            if ((char.properties and BluetoothGattCharacteristic.PROPERTY_READ) == 0) {
+                Log.d(TAG, "Skipping read for $charUuid (READ not supported)")
                 gattBusy = false
                 processNextGattOperation()
                 return@Runnable
