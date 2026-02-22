@@ -10,36 +10,39 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val LightColorScheme = lightColorScheme(
-    primary = SoftGreen,
-    secondary = Sage,
-    tertiary = OxygenBlue,
-    background = BackgroundCream,
-    surface = SurfaceWhite,
-    onPrimary = SurfaceWhite,
-    onSecondary = TextDark,
-    onTertiary = SurfaceWhite,
-    onBackground = TextDark,
-    onSurface = TextDark,
-    error = AlertRed
+    primary = GreenPrimary,
+    onPrimary = TextOnPrimary,
+    primaryContainer = GreenContainer,
+    onPrimaryContainer = GreenPrimary,
+    secondary = GreenLight,
+    onSecondary = TextOnPrimary,
+    secondaryContainer = GreenSoft,
+    background = Background,
+    onBackground = TextPrimary,
+    surface = Surface,
+    onSurface = TextPrimary,
+    surfaceVariant = Color(0xFFE8E8E8),
+    onSurfaceVariant = TextSecondary,
+    error = AlertRed,
+    onError = TextOnPrimary
 )
 
 private val DarkColorScheme = darkColorScheme(
-    primary = MintLight,
-    secondary = Sage,
-    tertiary = OxygenBlue,
-    background = TextDark,
-    surface = Color(0xFF303030),
-    onPrimary = TextDark,
-    onSecondary = SurfaceWhite,
-    onTertiary = TextDark,
-    onBackground = SurfaceWhite,
-    onSurface = SurfaceWhite,
+    primary = GreenLight,
+    onPrimary = TextPrimary,
+    primaryContainer = GreenPrimary,
+    secondary = GreenSoft,
+    background = Color(0xFF121212),
+    onBackground = Color(0xFFE0E0E0),
+    surface = Color(0xFF1E1E1E),
+    onSurface = Color(0xFFE0E0E0),
     error = AlertRed
 )
 

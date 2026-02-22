@@ -10,30 +10,40 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.app.ActivityCompat
+import com.example.guardianhealth.data.local.HealthDao
+import com.example.guardianhealth.data.local.HealthReading
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.time.Instant
 import java.util.*
-
 import javax.inject.Inject
-import dagger.hilt.android.qualifiers.ApplicationContext
-
 import javax.inject.Singleton
 
 @Singleton
-class BLEManager @Inject constructor(@ApplicationContext private val context: Context) {
+class BLEManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val fallAlertManager: FallAlertManager,
+    private val healthConnectManager: HealthConnectManager,
+    private val healthDao: HealthDao
+) {
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothManager.adapter
     }
 
-    private val bleScanner by lazy {
-        bluetoothAdapter?.bluetoothLeScanner
-    }
+    private val bleScanner by lazy { bluetoothAdapter?.bluetoothLeScanner }
 
     private var bluetoothGatt: BluetoothGatt? = null
 
-    // State flows for UI
+    // Throttle Health Connect writes to once per minute
+    private var lastHealthConnectWrite = 0L
+    private val HC_WRITE_INTERVAL = 60_000L
+
+    // ── State Flows (UI observes these) ────────────────────────────────
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning
 
@@ -49,239 +59,110 @@ class BLEManager @Inject constructor(@ApplicationContext private val context: Co
     private val _connectedDeviceName = MutableStateFlow<String?>(null)
     val connectedDeviceName: StateFlow<String?> = _connectedDeviceName
 
-    // Health data flows
-    private val _steps = MutableStateFlow(0)
-    val steps: StateFlow<Int> = _steps
-
+    // ── Health Data Flows ─────────────────────────────────────────
     private val _heartRate = MutableStateFlow(0)
     val heartRate: StateFlow<Int> = _heartRate
 
     private val _bloodOxygen = MutableStateFlow(0)
     val bloodOxygen: StateFlow<Int> = _bloodOxygen
 
+    private val _steps = MutableStateFlow(0)
+    val steps: StateFlow<Int> = _steps
+
     private val _fallDetected = MutableStateFlow(false)
     val fallDetected: StateFlow<Boolean> = _fallDetected
 
     companion object {
-        private const val TAG = "BleManager"
+        private const val TAG = "BLEManager"
 
-        // TODO: Replace these UUIDs with your actual device's UUIDs
-        // You'll get these from your microcontroller team
-        val SERVICE_UUID: UUID = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")
-        val HEART_RATE_UUID: UUID = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
-        val STEPS_UUID: UUID = UUID.fromString("00002a38-0000-1000-8000-00805f9b34fb")
-        val BLOOD_OXYGEN_UUID: UUID = UUID.fromString("00002a39-0000-1000-8000-00805f9b34fb")
-        val FALL_DETECTION_UUID: UUID = UUID.fromString("00002a3a-0000-1000-8000-00805f9b34fb")
+        // ┌────────────────────────────────────────────────────────────────┐
+        // │  CUSTOM BLE UUIDs — for nRF Connect testing                 │
+        // │                                                                │
+        // │  nRF Connect setup:                                            │
+        // │  1. Go to the “Server” (peripheral) tab in nRF Connect          │
+        // │  2. Add a new service with SERVICE_UUID below                   │
+        // │  3. Add each characteristic UUID with NOTIFY property           │
+        // │  4. Start advertising, then connect from this app               │
+        // │  5. Update characteristic values to test:                       │
+        // │     - Heart Rate: 1 byte  (e.g. 0x48 = 72 bpm)                │
+        // │     - SpO2:       1 byte  (e.g. 0x62 = 98%)                   │
+        // │     - Steps:      4 bytes LE (e.g. 0xC4090000 = 2500)         │
+        // │     - Fall:       1 byte  (0x01 = fall, 0x00 = clear)         │
+        // └────────────────────────────────────────────────────────────────┘
+        val SERVICE_UUID: UUID      = UUID.fromString("0000fff0-0000-1000-8000-00805f9b34fb")
+        val HEART_RATE_UUID: UUID   = UUID.fromString("0000fff1-0000-1000-8000-00805f9b34fb")
+        val SPO2_UUID: UUID         = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb")
+        val STEPS_UUID: UUID        = UUID.fromString("0000fff3-0000-1000-8000-00805f9b34fb")
+        val FALL_DETECT_UUID: UUID  = UUID.fromString("0000fff4-0000-1000-8000-00805f9b34fb")
+
+        // Standard BLE Client Characteristic Configuration Descriptor
+        val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 
     // Check if we have necessary permissions
     fun hasBluetoothPermissions(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Android 12+
             ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
                     ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
         } else {
-            // Android 11 and below - need both FINE and COARSE
-            ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
-                    ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         }
     }
 
-    // Start scanning for BLE devices
+    // ── Scanning ────────────────────────────────────────────────
     @SuppressLint("MissingPermission")
     fun startScan() {
         if (!hasBluetoothPermissions()) {
             Log.e(TAG, "Missing Bluetooth permissions")
             return
         }
-
         if (bluetoothAdapter?.isEnabled != true) {
-            Log.e(TAG, "Bluetooth is not enabled")
             _connectionStatus.value = "Bluetooth is disabled"
             return
         }
-
         _isScanning.value = true
-        _connectionStatus.value = "Scanning for devices..."
+        _connectionStatus.value = "Scanning..."
         _discoveredDevices.value = emptyList()
-
         bleScanner?.startScan(scanCallback)
-
-        Log.d(TAG, "Started BLE scan")
     }
 
-    // Stop scanning
     @SuppressLint("MissingPermission")
     fun stopScan() {
         if (!hasBluetoothPermissions()) return
-
         _isScanning.value = false
         bleScanner?.stopScan(scanCallback)
-        Log.d(TAG, "Stopped BLE scan")
     }
 
-    // Scan callback
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
-
-            // Only add devices with names (filters out many random BLE devices)
             if (device.name != null && !_discoveredDevices.value.contains(device)) {
                 _discoveredDevices.value = _discoveredDevices.value + device
-                Log.d(TAG, "Found device: ${device.name} - ${device.address}")
+                Log.d(TAG, "Found: ${device.name} [${device.address}]")
             }
         }
 
         override fun onScanFailed(errorCode: Int) {
-            Log.e(TAG, "Scan failed with error code: $errorCode")
+            Log.e(TAG, "Scan failed: $errorCode")
             _isScanning.value = false
-            _connectionStatus.value = "Scan failed"
+            _connectionStatus.value = "Scan failed (error $errorCode)"
         }
     }
 
-    // Connect to a specific device
+    // ── Connection ────────────────────────────────────────────────
     @SuppressLint("MissingPermission")
     fun connectToDevice(device: BluetoothDevice) {
         if (!hasBluetoothPermissions()) {
-            Log.e(TAG, "Missing Bluetooth permissions for connection")
             _connectionStatus.value = "Permission denied"
             return
         }
-
         stopScan()
-        _connectionStatus.value = "Connecting to ${device.name ?: "device"}..."
-        _connectedDeviceName.value = device.name ?: "Unknown Device"
-
-        Log.d(TAG, "Attempting to connect to ${device.name} (${device.address})")
-
+        _connectionStatus.value = "Connecting..."
+        _connectedDeviceName.value = device.name ?: "Unknown"
         bluetoothGatt = device.connectGatt(context, false, gattCallback)
     }
 
-    // GATT callback for connection and data
-    private val gattCallback = object : BluetoothGattCallback() {
-        @SuppressLint("MissingPermission")
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> {
-                    Log.d(TAG, "Connected to GATT server")
-                    _isConnected.value = true
-                    _connectionStatus.value = "Connected - discovering services..."
-
-                    // Discover services
-                    val discoverSuccess = gatt.discoverServices()
-                    if (!discoverSuccess) {
-                        Log.e(TAG, "Failed to start service discovery")
-                        _connectionStatus.value = "Connected (service discovery failed)"
-                    }
-                }
-                BluetoothProfile.STATE_DISCONNECTED -> {
-                    Log.d(TAG, "Disconnected from GATT server (status: $status)")
-                    _isConnected.value = false
-                    _connectionStatus.value = if (status == 0) "Disconnected" else "Connection lost (error: $status)"
-                    _connectedDeviceName.value = null
-                }
-                BluetoothProfile.STATE_CONNECTING -> {
-                    Log.d(TAG, "Connecting...")
-                    _connectionStatus.value = "Connecting..."
-                }
-                BluetoothProfile.STATE_DISCONNECTING -> {
-                    Log.d(TAG, "Disconnecting...")
-                    _connectionStatus.value = "Disconnecting..."
-                }
-            }
-        }
-
-        @SuppressLint("MissingPermission")
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                Log.d(TAG, "Services discovered: ${gatt.services.size} services found")
-                _connectionStatus.value = "Connected"
-
-                // List all services found
-                gatt.services.forEach { service ->
-                    Log.d(TAG, "Service found: ${service.uuid}")
-                    service.characteristics.forEach { char ->
-                        Log.d(TAG, "  Characteristic: ${char.uuid}")
-                    }
-                }
-
-                // Find your service
-                val service = gatt.getService(SERVICE_UUID)
-                if (service != null) {
-                    Log.d(TAG, "Found health service")
-
-                    // Enable notifications for each characteristic
-                    enableNotifications(gatt, service, HEART_RATE_UUID)
-                    enableNotifications(gatt, service, STEPS_UUID)
-                    enableNotifications(gatt, service, BLOOD_OXYGEN_UUID)
-                    enableNotifications(gatt, service, FALL_DETECTION_UUID)
-                } else {
-                    Log.w(TAG, "Health service not found. Looking for service UUID: $SERVICE_UUID")
-                    _connectionStatus.value = "Connected (no health data service)"
-                }
-            } else {
-                Log.e(TAG, "Service discovery failed with status: $status")
-                _connectionStatus.value = "Connected (service discovery failed: $status)"
-            }
-        }
-
-        @SuppressLint("MissingPermission")
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray
-        ) {
-            // Parse data based on characteristic UUID
-            when (characteristic.uuid) {
-                HEART_RATE_UUID -> {
-                    val heartRate = value[0].toInt() and 0xFF
-                    _heartRate.value = heartRate
-                    Log.d(TAG, "Heart Rate: $heartRate bpm")
-                }
-                STEPS_UUID -> {
-                    val steps = bytesToInt(value)
-                    _steps.value = steps
-                    Log.d(TAG, "Steps: $steps")
-                }
-                BLOOD_OXYGEN_UUID -> {
-                    val oxygen = value[0].toInt() and 0xFF
-                    _bloodOxygen.value = oxygen
-                    Log.d(TAG, "Blood Oxygen: $oxygen%")
-                }
-                FALL_DETECTION_UUID -> {
-                    val fallDetected = value[0].toInt() == 1
-                    _fallDetected.value = fallDetected
-                    if (fallDetected) {
-                        Log.w(TAG, "FALL DETECTED!")
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun enableNotifications(
-        gatt: BluetoothGatt,
-        service: BluetoothGattService,
-        characteristicUuid: UUID
-    ) {
-        val characteristic = service.getCharacteristic(characteristicUuid)
-        if (characteristic != null) {
-            gatt.setCharacteristicNotification(characteristic, true)
-
-            // Enable notifications on the device
-            val descriptor = characteristic.getDescriptor(
-                UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-            )
-            if (descriptor != null) {
-                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                gatt.writeDescriptor(descriptor)
-            }
-        }
-    }
-
-    // Disconnect from device
     @SuppressLint("MissingPermission")
     fun disconnect() {
         bluetoothGatt?.disconnect()
@@ -292,7 +173,180 @@ class BLEManager @Inject constructor(@ApplicationContext private val context: Co
         _connectedDeviceName.value = null
     }
 
-    // Helper function to convert byte array to int
+    // ── GATT Callback ─────────────────────────────────────────────
+    private val gattCallback = object : BluetoothGattCallback() {
+        @SuppressLint("MissingPermission")
+        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            when (newState) {
+                BluetoothProfile.STATE_CONNECTED -> {
+                    Log.d(TAG, "Connected to GATT server")
+                    _isConnected.value = true
+                    _connectionStatus.value = "Discovering services..."
+                    gatt.discoverServices()
+                    // Check Health Connect permissions in background
+                    scope.launch { healthConnectManager.checkPermissions() }
+                }
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    Log.d(TAG, "Disconnected (status: $status)")
+                    _isConnected.value = false
+                    _connectionStatus.value = if (status == 0) "Disconnected" else "Connection lost"
+                    _connectedDeviceName.value = null
+                }
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                _connectionStatus.value = "Service discovery failed"
+                return
+            }
+
+            Log.d(TAG, "Services discovered: ${gatt.services.size}")
+            gatt.services.forEach { svc ->
+                Log.d(TAG, "  Service: ${svc.uuid}")
+                svc.characteristics.forEach { c -> Log.d(TAG, "    Char: ${c.uuid}") }
+            }
+
+            val service = gatt.getService(SERVICE_UUID)
+            if (service != null) {
+                _connectionStatus.value = "Connected"
+                // Subscribe to all characteristics — order matters for GATT queue
+                enableNotification(gatt, service, HEART_RATE_UUID)
+                enableNotification(gatt, service, SPO2_UUID)
+                enableNotification(gatt, service, STEPS_UUID)
+                enableNotification(gatt, service, FALL_DETECT_UUID)
+            } else {
+                _connectionStatus.value = "Connected (service not found)"
+                Log.w(TAG, "Service $SERVICE_UUID not found on device")
+            }
+        }
+
+        // API < 33 callback (Android 12 and below)
+        @Deprecated("Deprecated in Java")
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic
+        ) {
+            @Suppress("DEPRECATION")
+            val value = characteristic.value ?: return
+            handleCharacteristicData(characteristic.uuid, value)
+        }
+
+        // API 33+ callback (Android 13+)
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            handleCharacteristicData(characteristic.uuid, value)
+        }
+    }
+
+    // ── Data Parsing ──────────────────────────────────────────────
+    private fun handleCharacteristicData(uuid: UUID, value: ByteArray) {
+        if (value.isEmpty()) return
+
+        when (uuid) {
+            HEART_RATE_UUID -> {
+                val hr = value[0].toInt() and 0xFF
+                _heartRate.value = hr
+                Log.d(TAG, "Heart Rate: $hr bpm")
+            }
+            SPO2_UUID -> {
+                val spo2 = value[0].toInt() and 0xFF
+                _bloodOxygen.value = spo2
+                Log.d(TAG, "SpO2: $spo2%")
+            }
+            STEPS_UUID -> {
+                val s = bytesToInt(value)
+                _steps.value = s
+                Log.d(TAG, "Steps: $s")
+            }
+            FALL_DETECT_UUID -> {
+                val fell = value[0].toInt() == 1
+                if (fell && !_fallDetected.value) {
+                    _fallDetected.value = true
+                    Log.w(TAG, "⚠️ FALL DETECTED via BLE")
+                    fallAlertManager.onFallDetected()
+                }
+            }
+        }
+
+        // Persist latest reading to Room
+        scope.launch {
+            try {
+                healthDao.insertReading(
+                    HealthReading(
+                        heartRate = _heartRate.value,
+                        spO2 = _bloodOxygen.value,
+                        steps = _steps.value,
+                        isFallDetected = _fallDetected.value
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Room insert failed: ${e.message}")
+            }
+        }
+
+        // Throttled write to Health Connect (once per minute max)
+        maybeWriteToHealthConnect()
+    }
+
+    private fun maybeWriteToHealthConnect() {
+        val now = System.currentTimeMillis()
+        if (now - lastHealthConnectWrite < HC_WRITE_INTERVAL) return
+        lastHealthConnectWrite = now
+
+        scope.launch {
+            try {
+                healthConnectManager.writeHeartRate(_heartRate.value)
+                healthConnectManager.writeSteps(
+                    _steps.value,
+                    Instant.ofEpochMilli(now - HC_WRITE_INTERVAL),
+                    Instant.now()
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Health Connect write failed: ${e.message}")
+            }
+        }
+    }
+
+    // ── Notification Subscription ─────────────────────────────────
+    @SuppressLint("MissingPermission")
+    private fun enableNotification(
+        gatt: BluetoothGatt,
+        service: BluetoothGattService,
+        charUuid: UUID
+    ) {
+        val char = service.getCharacteristic(charUuid) ?: return
+        gatt.setCharacteristicNotification(char, true)
+        val desc = char.getDescriptor(CCCD_UUID)
+        if (desc != null) {
+            desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            gatt.writeDescriptor(desc)
+        }
+    }
+
+    // ── Fall Detection Controls ───────────────────────────────────
+
+    /**
+     * Simulate a fall event for testing without BLE hardware.
+     * Call from the UI or trigger via nRF Connect by writing 0x01
+     * to the Fall Detection characteristic (0000FFF4-...).
+     */
+    fun simulateFall() {
+        _fallDetected.value = true
+        fallAlertManager.onFallDetected()
+    }
+
+    /** Dismiss the current fall alert and clear the notification. */
+    fun dismissFall() {
+        _fallDetected.value = false
+        fallAlertManager.dismissAlert()
+    }
+
+    // ── Utility ───────────────────────────────────────────────────
     private fun bytesToInt(bytes: ByteArray): Int {
         var result = 0
         for (i in bytes.indices) {

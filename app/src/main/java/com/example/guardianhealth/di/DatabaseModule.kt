@@ -3,6 +3,7 @@ package com.example.guardianhealth.di
 import android.content.Context
 import androidx.room.Room
 import com.example.guardianhealth.data.local.AppDatabase
+import com.example.guardianhealth.data.local.ContactDao
 import com.example.guardianhealth.data.local.HealthDao
 import dagger.Module
 import dagger.Provides
@@ -29,5 +30,10 @@ object DatabaseModule {
     @Provides
     fun provideHealthDao(database: AppDatabase): HealthDao {
         return database.healthDao()
+    }
+
+    @Provides
+    fun provideContactDao(database: AppDatabase): ContactDao {
+        return database.contactDao()
     }
 }

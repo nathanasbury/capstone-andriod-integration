@@ -1,24 +1,35 @@
 package com.example.guardianhealth.ui.theme
-import androidx.compose.ui.graphics.Color
 
 import androidx.compose.ui.graphics.Color
 
-val SoftGreen = Color(0xFF66BB6A)
-val MintLight = Color(0xFFA5D6A7)
-val ForestDark = Color(0xFF1B5E20)
-val Sage = Color(0xFF81C784)
-val BackgroundCream = Color(0xFFFAFAFA)
-val SurfaceWhite = Color(0xFFFFFFFF)
-val TextDark = Color(0xFF212121)
-val TextSecondary = Color(0xFF757575)
-val AlertRed = Color(0xFFEF5350)
-val HeartRed = Color(0xFFE57373)
-val OxygenBlue = Color(0xFF64B5F6)
-val StepsOrange = Color(0xFFFFB74D)
+// ── Primary Palette ──────────────────────────────────────────
+val GreenPrimary = Color(0xFF2E7D32)
+val GreenLight = Color(0xFF66BB6A)
+val GreenSoft = Color(0xFFA5D6A7)
+val GreenContainer = Color(0xFFE8F5E9)
+val MintAccent = Color(0xFF00E676)
 
-// Gradients
-val HealthGradientStart = Color(0xFF66BB6A)
-val HealthGradientEnd = Color(0xFF43A047)
+// ── Background & Surface ─────────────────────────────────────
+val Background = Color(0xFFF6F7F9)
+val Surface = Color(0xFFFFFFFF)
 
-val AlertGradientStart = Color(0xFFEF5350)
-val AlertGradientEnd = Color(0xFFD32F2F)
+// ── Text ─────────────────────────────────────────────────────
+val TextPrimary = Color(0xFF1A1A2E)
+val TextSecondary = Color(0xFF6B7280)
+val TextOnPrimary = Color(0xFFFFFFFF)
+
+// ── Vital Accent Colors ──────────────────────────────────────
+val HeartRed = Color(0xFFEF5350)
+val HeartRedBg = Color(0xFFFFEBEE)
+val OxygenBlue = Color(0xFF42A5F5)
+val OxygenBlueBg = Color(0xFFE3F2FD)
+val StepsAmber = Color(0xFFFF9800)
+val StepsAmberBg = Color(0xFFFFF3E0)
+
+// ── Alert ────────────────────────────────────────────────────
+val AlertRed = Color(0xFFD32F2F)
+val AlertRedBg = Color(0xFFFFCDD2)
+
+// ── Status ───────────────────────────────────────────────────
+val ConnectedGreen = Color(0xFF4CAF50)
+val DisconnectedGray = Color(0xFF9E9E9E)
