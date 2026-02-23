@@ -43,6 +43,11 @@
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
 
+    <!-- Health Connect package visibility (required on pre-Android 14) -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
+
     <application android:name=".GuardianHealthApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -58,6 +63,11 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Health Connect permissions rationale -->
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>
         </activity>
 

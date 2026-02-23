@@ -5,9 +5,12 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.health.connect.client.PermissionController
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -74,13 +77,32 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
+            // Health Connect permission launcher
+            val scope = rememberCoroutineScope()
+            val hcPermissionLauncher = rememberLauncherForActivityResult(
+                contract = PermissionController.createRequestPermissionResultContract()
+            ) { grantedPermissions ->
+                scope.launch {
+                    healthConnectManager.checkPermissions()
+                    Log.d("HealthConnect", "Permissions granted: $grantedPermissions")
+                }
+            }
+
+            // Check HC permissions on launch
+            LaunchedEffect(Unit) {
+                healthConnectManager.checkPermissions()
+            }
+
             GuardianHealthTheme {
                 MainNavigation(
                     bleManager = bleManager,
                     contactDao = contactDao,
                     healthDao = healthDao,
                     healthConnectManager = healthConnectManager,
-                    onRequestPermissions = { requestPermissions() }
+                    onRequestPermissions = { requestPermissions() },
+                    onRequestHealthConnectPermissions = {
+                        hcPermissionLauncher.launch(healthConnectManager.permissions)
+                    }
                 )
             }
         }
@@ -124,7 +146,8 @@ fun MainNavigation(
     contactDao: ContactDao,
     healthDao: HealthDao,
     healthConnectManager: HealthConnectManager,
-    onRequestPermissions: () -> Unit
+    onRequestPermissions: () -> Unit,
+    onRequestHealthConnectPermissions: () -> Unit
 ) {
     var currentScreen by remember { mutableStateOf(Screen.HOME) }
     var trendMetric by remember { mutableStateOf("heartrate") }
@@ -199,7 +222,9 @@ fun MainNavigation(
                     Screen.SETTINGS -> SettingsScreen(
                         bleManager = bleManager,
                         contactDao = contactDao,
-                        onRequestPermissions = onRequestPermissions
+                        healthConnectManager = healthConnectManager,
+                        onRequestPermissions = onRequestPermissions,
+                        onRequestHealthConnectPermissions = onRequestHealthConnectPermissions
                     )
                 }
             }
@@ -1026,11 +1051,14 @@ fun DeviceSelectionDialog(
 fun SettingsScreen(
     bleManager: BLEManager,
     contactDao: ContactDao,
-    onRequestPermissions: () -> Unit
+    healthConnectManager: HealthConnectManager,
+    onRequestPermissions: () -> Unit,
+    onRequestHealthConnectPermissions: () -> Unit
 ) {
     val isConnected by bleManager.isConnected.collectAsState()
     val connectionStatus by bleManager.connectionStatus.collectAsState()
     val contacts by contactDao.getAllContacts().collectAsState(initial = emptyList())
+    val hasHcPermissions by healthConnectManager.hasPermissions.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     var showAddContactDialog by remember { mutableStateOf(false) }
     var showDeviceDialog by remember { mutableStateOf(false) }
@@ -1107,6 +1135,70 @@ fun SettingsScreen(
                     Switch(
                         checked = isConnected,
                         onCheckedChange = null,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = GreenPrimary,
+                            checkedTrackColor = GreenSoft
+                        )
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // ── Health Connect ──
+        SettingsSection("Health Connect") {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Surface),
+                border = BorderStroke(1.dp, CardBorder)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            if (!hasHcPermissions) {
+                                onRequestHealthConnectPermissions()
+                            }
+                        }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (hasHcPermissions) GreenContainer else SurfaceDim,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.FavoriteBorder,
+                                null,
+                                tint = if (hasHcPermissions) GreenPrimary else TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Health Connect",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            if (hasHcPermissions) "Connected — permissions granted"
+                            else "Tap to grant permissions",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (hasHcPermissions) GreenPrimary else TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = hasHcPermissions,
+                        onCheckedChange = {
+                            if (!hasHcPermissions) {
+                                onRequestHealthConnectPermissions()
+                            }
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = GreenPrimary,
                             checkedTrackColor = GreenSoft
