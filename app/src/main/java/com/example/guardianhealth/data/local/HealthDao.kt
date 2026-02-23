@@ -15,6 +15,9 @@ interface HealthDao {
     @Query("SELECT * FROM health_readings WHERE isFallDetected = 1 ORDER BY timestamp DESC")
     fun getFallHistory(): Flow<List<HealthReading>>
 
+    @Query("SELECT * FROM health_readings WHERE timestamp >= :since ORDER BY timestamp ASC")
+    fun getReadingsSince(since: Long): Flow<List<HealthReading>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertReading(reading: HealthReading)
 

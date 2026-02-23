@@ -28,28 +28,33 @@ private val LightColorScheme = lightColorScheme(
     onBackground = TextPrimary,
     surface = Surface,
     onSurface = TextPrimary,
-    surfaceVariant = Color(0xFFE8E8E8),
+    surfaceVariant = SurfaceDim,
     onSurfaceVariant = TextSecondary,
+    outline = BorderLight,
+    outlineVariant = CardBorder,
     error = AlertRed,
     onError = TextOnPrimary
 )
 
 private val DarkColorScheme = darkColorScheme(
     primary = GreenLight,
-    onPrimary = TextPrimary,
-    primaryContainer = GreenPrimary,
+    onPrimary = Color(0xFF003731),
+    primaryContainer = Color(0xFF005048),
     secondary = GreenSoft,
-    background = Color(0xFF121212),
-    onBackground = Color(0xFFE0E0E0),
-    surface = Color(0xFF1E1E1E),
-    onSurface = Color(0xFFE0E0E0),
+    background = Color(0xFF0F1419),
+    onBackground = Color(0xFFE5E7EB),
+    surface = Color(0xFF1A1F2E),
+    onSurface = Color(0xFFE5E7EB),
+    surfaceVariant = Color(0xFF2A2F3E),
+    onSurfaceVariant = Color(0xFF9CA3AF),
+    outline = Color(0xFF374151),
+    outlineVariant = Color(0xFF374151),
     error = AlertRed
 )
 
 @Composable
 fun GuardianHealthTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {

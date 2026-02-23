@@ -21,6 +21,7 @@ import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.random.Random
 
 @Singleton
 class BLEManager @Inject constructor(
@@ -77,6 +78,18 @@ class BLEManager @Inject constructor(
     private val _fallDetected = MutableStateFlow(false)
     val fallDetected: StateFlow<Boolean> = _fallDetected
 
+    // ── Simulation Mode ───────────────────────────────────────────
+    private val _isSimulating = MutableStateFlow(false)
+    val isSimulating: StateFlow<Boolean> = _isSimulating
+
+    private var simulationJob: Job? = null
+    private var simulatedStepAccumulator = 0
+
+    // Track which mode the current connection is using
+    private var isUartMode = false
+    // Buffer for incomplete UART messages (data may arrive in fragments)
+    private val uartBuffer = StringBuilder()
+
     companion object {
         private const val TAG = "BLEManager"
 
@@ -102,6 +115,22 @@ class BLEManager @Inject constructor(
 
         // Standard BLE Client Characteristic Configuration Descriptor
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        // Nordic UART Service (NUS) — for Flipper Zero
+        // Flipper: GPIO > USB-UART Bridge > Channel: BLE
+        // Or use a Flipper app like "BLE UART" / "Serial over BLE"
+        //
+        // Text protocol (send from Flipper serial terminal):
+        //   HR:72       -> sets heart rate to 72 bpm
+        //   SPO2:98     -> sets blood oxygen to 98%
+        //   STEPS:2500  -> sets step count to 2500
+        //   FALL:1      -> triggers fall alert (FALL:0 to clear)
+        //   ALL:72,98,2500 -> sets HR, SpO2, Steps at once
+        //
+        // Each command is newline-terminated (\n).
+        val NUS_SERVICE_UUID: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
+        val NUS_RX_UUID: UUID      = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e") // Write to Flipper
+        val NUS_TX_UUID: UUID      = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e") // Notify from Flipper
     }
 
     // Check if we have necessary permissions
@@ -175,6 +204,8 @@ class BLEManager @Inject constructor(
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
         bluetoothGatt = null
+        isUartMode = false
+        uartBuffer.clear()
         _isConnected.value = false
         _connectionStatus.value = "Disconnected"
         _connectedDeviceName.value = null
@@ -217,23 +248,33 @@ class BLEManager @Inject constructor(
                 }
             }
 
-            val service = gatt.getService(SERVICE_UUID)
-            if (service != null) {
+            // Try custom health service first, then fall back to Nordic UART (Flipper Zero)
+            val customService = gatt.getService(SERVICE_UUID)
+            val nusService = gatt.getService(NUS_SERVICE_UUID)
+
+            if (customService != null) {
+                // Custom Service Mode (nRF Connect / CC2674 band)
+                isUartMode = false
                 _connectionStatus.value = "Connected — subscribing..."
-                // Queue notification subscriptions one at a time
                 val uuids = listOf(HEART_RATE_UUID, SPO2_UUID, STEPS_UUID, FALL_DETECT_UUID)
                 uuids.forEach { uuid ->
-                    enqueueNotificationSubscription(gatt, service, uuid)
+                    enqueueNotificationSubscription(gatt, customService, uuid)
                 }
-                // Try to read initial values (optional — will skip if READ not supported)
                 uuids.forEach { uuid ->
-                    enqueueReadIfSupported(gatt, service, uuid)
+                    enqueueReadIfSupported(gatt, customService, uuid)
                 }
-                // Kick off the queue
+                processNextGattOperation()
+            } else if (nusService != null) {
+                // Nordic UART Service Mode (Flipper Zero)
+                isUartMode = true
+                uartBuffer.clear()
+                _connectionStatus.value = "Connected (Flipper UART)"
+                Log.d(TAG, "Flipper Zero detected — using Nordic UART Service")
+                enqueueNotificationSubscription(gatt, nusService, NUS_TX_UUID)
                 processNextGattOperation()
             } else {
-                _connectionStatus.value = "Connected (service not found)"
-                Log.w(TAG, "Service $SERVICE_UUID not found. Available services:")
+                _connectionStatus.value = "Connected (no supported service)"
+                Log.w(TAG, "Neither custom service nor NUS found. Available services:")
                 gatt.services.forEach { Log.w(TAG, "  ${it.uuid}") }
             }
         }
@@ -292,45 +333,196 @@ class BLEManager @Inject constructor(
         ) {
             handleCharacteristicData(characteristic.uuid, value)
         }
+
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "UART write OK")
+            } else {
+                Log.e(TAG, "UART write FAILED status=$status")
+            }
+            gattBusy = false
+            processNextGattOperation()
+        }
     }
 
     // ── Data Parsing ──────────────────────────────────────────────
     private fun handleCharacteristicData(uuid: UUID, value: ByteArray) {
         if (value.isEmpty()) return
 
+        // Route UART (Flipper Zero) data through the text protocol parser
+        if (uuid == NUS_TX_UUID) {
+            handleUartData(value)
+            return
+        }
+
         val hexStr = value.joinToString(" ") { "0x%02X".format(it) }
-        Log.d(TAG, "📩 Received data from $uuid: $hexStr")
+        Log.d(TAG, "Received data from $uuid: $hexStr")
 
         when (uuid) {
             HEART_RATE_UUID -> {
                 val hr = value[0].toInt() and 0xFF
                 _heartRate.value = hr
-                Log.d(TAG, "❤️ Heart Rate: $hr bpm")
+                Log.d(TAG, "Heart Rate: $hr bpm")
             }
             SPO2_UUID -> {
                 val spo2 = value[0].toInt() and 0xFF
                 _bloodOxygen.value = spo2
-                Log.d(TAG, "🫁 SpO2: $spo2%")
+                Log.d(TAG, "SpO2: $spo2%")
             }
             STEPS_UUID -> {
                 val s = bytesToInt(value)
                 _steps.value = s
-                Log.d(TAG, "👟 Steps: $s")
+                Log.d(TAG, "Steps: $s")
             }
             FALL_DETECT_UUID -> {
                 val fell = value[0].toInt() == 1
                 if (fell && !_fallDetected.value) {
                     _fallDetected.value = true
-                    Log.w(TAG, "⚠️ FALL DETECTED via BLE")
+                    Log.w(TAG, "FALL DETECTED via BLE")
                     fallAlertManager.onFallDetected()
                 } else if (!fell && _fallDetected.value) {
                     _fallDetected.value = false
-                    Log.d(TAG, "✅ Fall cleared")
+                    Log.d(TAG, "Fall cleared")
                 }
             }
         }
 
-        // Persist latest reading to Room
+        persistAndSync()
+    }
+
+    // ── Nordic UART (Flipper Zero) Text Protocol ──────────────────
+    //
+    // Parses newline-delimited text commands received over BLE UART:
+    //   HR:72        -> heart rate 72 bpm
+    //   SPO2:98      -> blood oxygen 98%
+    //   STEPS:2500   -> step count 2500
+    //   FALL:1       -> fall detected  (FALL:0 to clear)
+    //   ALL:72,98,2500 -> sets HR, SpO2, Steps in one message
+    //
+    // Data may arrive fragmented across multiple BLE packets,
+    // so we buffer until we see a newline.
+
+    private fun handleUartData(value: ByteArray) {
+        val chunk = String(value, Charsets.UTF_8)
+        Log.d(TAG, "UART chunk: $chunk")
+        uartBuffer.append(chunk)
+
+        // Process all complete lines in the buffer
+        while (true) {
+            val newlineIdx = uartBuffer.indexOf('\n')
+            if (newlineIdx == -1) break
+
+            val line = uartBuffer.substring(0, newlineIdx).trim()
+            uartBuffer.delete(0, newlineIdx + 1)
+
+            if (line.isNotEmpty()) {
+                parseUartCommand(line)
+            }
+        }
+
+        // Safety: if buffer grows too large without a newline, treat it as a single command
+        if (uartBuffer.length > 256) {
+            val line = uartBuffer.toString().trim()
+            uartBuffer.clear()
+            if (line.isNotEmpty()) parseUartCommand(line)
+        }
+    }
+
+    private fun parseUartCommand(line: String) {
+        Log.d(TAG, "UART command: $line")
+        val parts = line.uppercase().split(":", limit = 2)
+        if (parts.size != 2) {
+            Log.w(TAG, "Ignoring malformed UART line: $line")
+            return
+        }
+
+        val key = parts[0].trim()
+        val raw = parts[1].trim()
+
+        try {
+            when (key) {
+                "HR" -> {
+                    val hr = raw.toInt().coerceIn(0, 300)
+                    _heartRate.value = hr
+                    Log.d(TAG, "UART Heart Rate: $hr bpm")
+                }
+                "SPO2" -> {
+                    val spo2 = raw.toInt().coerceIn(0, 100)
+                    _bloodOxygen.value = spo2
+                    Log.d(TAG, "UART SpO2: $spo2%")
+                }
+                "STEPS" -> {
+                    val s = raw.toInt().coerceIn(0, 999_999)
+                    _steps.value = s
+                    Log.d(TAG, "UART Steps: $s")
+                }
+                "FALL" -> {
+                    val fell = raw == "1"
+                    if (fell && !_fallDetected.value) {
+                        _fallDetected.value = true
+                        Log.w(TAG, "FALL DETECTED via Flipper")
+                        fallAlertManager.onFallDetected()
+                    } else if (!fell && _fallDetected.value) {
+                        _fallDetected.value = false
+                        Log.d(TAG, "Fall cleared via Flipper")
+                    }
+                }
+                "ALL" -> {
+                    // ALL:72,98,2500  -> HR, SpO2, Steps
+                    val vals = raw.split(",")
+                    if (vals.size >= 2) {
+                        _heartRate.value = vals[0].trim().toInt().coerceIn(0, 300)
+                        _bloodOxygen.value = vals[1].trim().toInt().coerceIn(0, 100)
+                    }
+                    if (vals.size >= 3) {
+                        _steps.value = vals[2].trim().toInt().coerceIn(0, 999_999)
+                    }
+                    Log.d(TAG, "UART ALL -> HR=${_heartRate.value} SpO2=${_bloodOxygen.value} Steps=${_steps.value}")
+                }
+                else -> Log.w(TAG, "Unknown UART command key: $key")
+            }
+        } catch (e: NumberFormatException) {
+            Log.e(TAG, "Bad numeric value in '$line': ${e.message}")
+        }
+
+        persistAndSync()
+    }
+
+    /**
+     * Send a text command to the Flipper Zero over BLE UART.
+     * Example: sendUartCommand("READ\n")
+     */
+    @SuppressLint("MissingPermission")
+    fun sendUartCommand(command: String) {
+        val gatt = bluetoothGatt ?: return
+        if (!isUartMode) {
+            Log.w(TAG, "sendUartCommand called but not in UART mode")
+            return
+        }
+        val nusService = gatt.getService(NUS_SERVICE_UUID) ?: return
+        val rxChar = nusService.getCharacteristic(NUS_RX_UUID) ?: return
+
+        gattQueue.add(Runnable {
+            val data = command.toByteArray(Charsets.UTF_8)
+            @Suppress("DEPRECATION")
+            rxChar.value = data
+            rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            val ok = gatt.writeCharacteristic(rxChar)
+            Log.d(TAG, "UART TX: $command (ok=$ok)")
+            if (!ok) {
+                gattBusy = false
+                processNextGattOperation()
+            }
+        })
+        processNextGattOperation()
+    }
+
+    // ── Persist & Sync helper ─────────────────────────────────────
+    private fun persistAndSync() {
         scope.launch {
             try {
                 healthDao.insertReading(
@@ -345,8 +537,6 @@ class BLEManager @Inject constructor(
                 Log.e(TAG, "Room insert failed: ${e.message}")
             }
         }
-
-        // Throttled write to Health Connect (once per minute max)
         maybeWriteToHealthConnect()
     }
 
@@ -463,6 +653,69 @@ class BLEManager @Inject constructor(
     fun dismissFall() {
         _fallDetected.value = false
         fallAlertManager.dismissAlert()
+    }
+
+    // ── Simulation Mode ───────────────────────────────────────────
+    // Generates realistic health data without any BLE hardware.
+    // Data flows through the same pipeline (Room DB, Health Connect,
+    // Fall Detection) so it validates the full integration.
+
+    fun startSimulation() {
+        if (_isSimulating.value) return
+        _isSimulating.value = true
+        _isConnected.value = true
+        _connectionStatus.value = "Simulating"
+        _connectedDeviceName.value = "Simulator"
+        simulatedStepAccumulator = _steps.value
+
+        simulationJob = scope.launch {
+            Log.d(TAG, "\uD83C\uDFAE Simulation started")
+            while (isActive) {
+                // ── Heart Rate: resting 60-100, with occasional spikes ──
+                val baseHr = 72
+                val drift = Random.nextInt(-8, 12)
+                val spike = if (Random.nextFloat() < 0.05f) Random.nextInt(10, 30) else 0
+                val hr = (baseHr + drift + spike).coerceIn(55, 130)
+                _heartRate.value = hr
+
+                // ── SpO2: normal range 95-99 ──
+                val spo2 = (97 + Random.nextInt(-2, 3)).coerceIn(93, 100)
+                _bloodOxygen.value = spo2
+
+                // ── Steps: gradual increase (0-5 steps every 2s) ──
+                simulatedStepAccumulator += Random.nextInt(0, 6)
+                _steps.value = simulatedStepAccumulator
+
+                // Persist to Room
+                try {
+                    healthDao.insertReading(
+                        HealthReading(
+                            heartRate = _heartRate.value,
+                            spO2 = _bloodOxygen.value,
+                            steps = _steps.value,
+                            isFallDetected = _fallDetected.value
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "Sim: Room insert failed: ${e.message}")
+                }
+
+                // Throttled Health Connect write
+                maybeWriteToHealthConnect()
+
+                delay(2_000L) // Update every 2 seconds
+            }
+        }
+    }
+
+    fun stopSimulation() {
+        simulationJob?.cancel()
+        simulationJob = null
+        _isSimulating.value = false
+        _isConnected.value = false
+        _connectionStatus.value = "Disconnected"
+        _connectedDeviceName.value = null
+        Log.d(TAG, "\uD83C\uDFAE Simulation stopped")
     }
 
     // ── Utility ───────────────────────────────────────────────────
