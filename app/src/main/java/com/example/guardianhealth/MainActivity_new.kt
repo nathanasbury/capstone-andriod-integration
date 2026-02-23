@@ -245,12 +245,7 @@ fun HomeScreen(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    "Hello,",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = TextSecondary
-                )
-                Text(
-                    "Guardian",
+                    "GuardianHealth+",
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold
                     ),
