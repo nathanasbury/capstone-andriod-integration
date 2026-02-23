@@ -39,6 +39,8 @@ android {
     buildFeatures {
         compose = true
     }
+    // Exclude staging reference file from compilation
+    sourceSets["main"].java.exclude("**/MainActivity_new.kt")
 }
 
 dependencies {
